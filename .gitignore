@@ -2,12 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 mlruns/
-data/
-runs/
+/data/
+/runs/
+/runs_kaggle/
 *.tif
 *.npy
 *.pt
 .env
 *.env
 .pytest_cache/
-runs_kaggle/
