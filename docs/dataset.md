@@ -21,7 +21,7 @@ anomaly layer is a separate later stage and any labels there must be described a
 | Flip / 90-degree rotation augmentation | Label-preserving for nadir imagery (no "up" in a satellite view). |
 | Macro-F1 beside accuracy | Pasture vs HerbaceousVegetation confusion is hidden by accuracy. |
 
-## Known weaknesses (be ready to discuss)
+## Known weaknesses
 
 - Patches are cropped from larger scenes, so neighbouring patches can share pixels/context.
   A random split can therefore leak spatial neighbours between train and test and inflate

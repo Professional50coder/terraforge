@@ -78,9 +78,13 @@ class ViT(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, n_classes)
 
-    def forward(self, x):
+    def features(self, x):
+        """Latent embedding: the normalised [CLS] token, shape (B, dim)."""
         t = self.embed(x)
         t = torch.cat([self.cls.expand(t.shape[0], -1, -1), t], dim=1) + self.pos
         for blk in self.blocks:
             t = blk(t)
-        return self.head(self.norm(t)[:, 0])
+        return self.norm(t)[:, 0]
+
+    def forward(self, x):
+        return self.head(self.features(x))

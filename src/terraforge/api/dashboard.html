@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TerraForge Live</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#14181f; --mute:#667085; --line:#e4e7ec;
+          --acc:#1f7a5c; --warn:#b54708; --bad:#b42318; --warnbg:#fffaeb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --card:#161b22; --ink:#e6e9ee; --mute:#8b94a3; --line:#262d38;
+            --acc:#3fb68b; --warn:#f5a524; --bad:#f97066; --warnbg:#2a2110; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:16px;
+           border-bottom:1px solid var(--line) }
+  h1 { font-size:18px; margin:0 }
+  .pill { padding:2px 10px; border:1px solid var(--line); border-radius:99px; color:var(--mute); font-size:12px }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--bad); margin-right:6px }
+  .dot.on { background:var(--acc) }
+  #banner { margin:16px; padding:10px 14px; border-radius:8px; background:var(--warnbg);
+            color:var(--warn); border:1px solid var(--warn); display:none }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; padding:0 16px 16px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px }
+  .card h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute) }
+  .kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:10px }
+  .kpi b { display:block; font-size:24px; font-variant-numeric:tabular-nums }
+  .kpi span { color:var(--mute); font-size:12px }
+  #feed { display:grid; grid-template-columns:repeat(auto-fill,minmax(92px,1fr)); gap:8px }
+  .tile { border:1px solid var(--line); border-radius:8px; padding:4px; cursor:pointer; font-size:11px }
+  .tile canvas { width:100%; image-rendering:pixelated; border-radius:4px; display:block }
+  .ok { color:var(--acc) } .no { color:var(--bad) }
+  .row { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px }
+  .row .name { width:140px; color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .bar { height:10px; background:var(--acc); border-radius:3px; min-width:1px; transition:width .3s }
+  #explain { white-space:pre-wrap; min-height:60px }
+  canvas.spark { width:100%; height:70px }
+  .wide { grid-column:1/-1 }
+</style>
+</head>
+<body>
+<header>
+  <h1>TerraForge Live</h1>
+  <span class="pill"><span id="dot" class="dot"></span><span id="conn">connecting</span></span>
+  <span class="pill" id="model">model: -</span>
+  <span class="pill" id="source">source: -</span>
+</header>
+<div id="banner"></div>
+<main>
+  <section class="card">
+    <h2>Throughput</h2>
+    <div class="kpis">
+      <div class="kpi"><b id="seen">0</b><span>patches scored</span></div>
+      <div class="kpi"><b id="lat">-</b><span>batch latency (ms)</span></div>
+      <div class="kpi"><b id="acc">-</b><span>running accuracy (labelled)</span></div>
+      <div class="kpi"><b id="drift">-</b><span>input drift (PSI)</span></div>
+    </div>
+    <canvas id="spark" class="spark"></canvas>
+  </section>
+  <section class="card">
+    <h2>Predicted class mix</h2>
+    <div id="mix"></div>
+  </section>
+  <section class="card wide">
+    <h2>Live feed (click a tile for a retrieval-grounded explanation)</h2>
+    <div id="feed"></div>
+  </section>
+  <section class="card wide">
+    <h2>Explanation</h2>
+    <div id="explain" class="pill" style="border:0;padding:0;color:var(--ink);font-size:14px">
+      Select a patch.</div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let classes = [], lats = [], untrained = false, lastRaw = null;
+function banner(t) { const b = $('banner'); b.textContent = t; b.style.display = t ? 'block' : 'none'; }
+function connect() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/stream');
+  ws.onopen = () => { $('dot').classList.add('on'); $('conn').textContent = 'live'; };
+  ws.onclose = () => { $('dot').classList.remove('on'); $('conn').textContent = 'reconnecting'; setTimeout(connect, 1500); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'hello') {
+      classes = m.classes; untrained = m.untrained;
+      $('model').textContent = 'model: ' + m.model_version; $('source').textContent = 'source: ' + m.source;
+      const notes = [];
+      if (m.untrained) notes.push('This model has NOT been trained. Predictions are random and shown only to demonstrate the pipeline.');
+      if (m.source === 'synthetic') notes.push('Input is synthetic test signal, not real satellite imagery.');
+      banner(notes.join(' '));
+    } else if (m.type === 'batch') render(m);
+  };
+}
+function render(m) {
+  $('seen').textContent = m.seen;
+  $('lat').textContent = m.latency_ms.toFixed(1);
+  $('acc').textContent = m.running_accuracy == null ? '-' : (100 * m.running_accuracy).toFixed(1) + '%';
+  $('drift').textContent = m.drift_psi == null ? '-' : m.drift_psi.toFixed(3) + ' ' + m.drift_status;
+  lats.push(m.latency_ms); if (lats.length > 60) lats.shift(); spark();
+  const total = Math.max(1, Object.values(m.counts).reduce((a, b) => a + b, 0));
+  $('mix').innerHTML = classes.map(c => `<div class="row"><span class="name">${c}</span>
+    <div class="bar" style="width:${100 * m.counts[c] / total * 1.6}px"></div>
+    <span>${(100 * m.counts[c] / total).toFixed(0)}%</span></div>`).join('');
+  const feed = $('feed');
+  for (const it of m.items) {
+    const t = document.createElement('div'); t.className = 'tile';
+    const cv = document.createElement('canvas'); cv.width = cv.height = it.size;
+    const raw = Uint8Array.from(atob(it.rgb_b64), c => c.charCodeAt(0));
+    const img = new ImageData(it.size, it.size);
+    for (let i = 0, j = 0; i < raw.length; i += 3, j += 4) { img.data[j] = raw[i]; img.data[j+1] = raw[i+1]; img.data[j+2] = raw[i+2]; img.data[j+3] = 255; }
+    cv.getContext('2d').putImageData(img, 0, 0);
+    const mark = it.truth == null ? '' : (it.truth === it.label ? '<span class="ok"> ✓</span>' : '<span class="no"> ✗ ' + it.truth + '</span>');
+    const cap = document.createElement('div');
+    cap.innerHTML = `${it.label} ${(100 * it.confidence).toFixed(0)}%${mark}`;
+    t.append(cv, cap);
+    t.onclick = () => explain(it); feed.prepend(t);
+  }
+  while (feed.children.length > 24) feed.lastChild.remove();
+}
+function spark() {
+  const c = $('spark'), g = c.getContext('2d'); c.width = c.clientWidth * 2; c.height = 140;
+  g.clearRect(0, 0, c.width, c.height); if (lats.length < 2) return;
+  const mx = Math.max(...lats) * 1.1; g.strokeStyle = getComputedStyle(document.body).getPropertyValue('--acc') || '#1f7a5c';
+  g.lineWidth = 3; g.beginPath();
+  lats.forEach((v, i) => { const x = i / (lats.length - 1) * c.width, y = c.height - v / mx * c.height; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.stroke();
+}
+async function explain(it) {
+  $('explain').textContent = 'Retrieving similar patches and explaining…';
+  try {
+    const r = await fetch('/explain_facts', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label: it.label, confidence: it.confidence, ndvi: it.ndvi, neighbours: it.neighbours})});
+    const j = await r.json();
+    $('explain').textContent = j.text + '\n\n[source: ' + j.source + (j.fallback_reason ? ', fallback: ' + j.fallback_reason : '') + ']';
+  } catch (e) { $('explain').textContent = 'Explanation unavailable: ' + e; }
+}
+connect();
+</script>
+</body>
+</html>

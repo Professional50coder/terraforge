@@ -24,7 +24,11 @@ CLASSES = (
 # Sentinel-2 band order in the EuroSAT GeoTIFFs.
 BANDS = ("B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08",
          "B8A", "B09", "B10", "B11", "B12")
-DOWNLOAD_URL = "https://madm.dfki.de/files/sentinel/EuroSATallBands.zip"
+# Mirrors tried in order; the original host is frequently unreachable.
+DOWNLOAD_URLS = (
+    "https://huggingface.co/datasets/torchgeo/eurosat/resolve/main/EuroSATallBands.zip",
+    "https://madm.dfki.de/files/sentinel/EuroSATallBands.zip",
+)
 
 
 def index_files(root: str | Path) -> list[tuple[str, int]]:
@@ -89,6 +93,46 @@ def band_statistics(root, manifest_csv, max_files=None):
     std = np.sqrt(sq / n - mean ** 2)
     return {"bands": list(BANDS), "mean": mean.tolist(), "std": std.tolist(),
             "n_train_files": len(paths)}
+
+
+def build_cache(root, manifest_csv, out_dir):
+    """Pack every patch into one uint16 memmap in manifest order (+ labels/splits).
+
+    Per-file GeoTIFF reads dominate training time on a CPU box; one sequential
+    memmap makes every epoch after the first I/O-cheap. uint16 is lossless here
+    (the source is uint16) and half the size of float32.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    with open(manifest_csv) as f:
+        rows = list(csv.DictReader(f))
+    arr = np.lib.format.open_memmap(out / "patches.npy", mode="w+", dtype="uint16",
+                                    shape=(len(rows), len(BANDS), 64, 64))
+    for i, r in enumerate(rows):
+        with rasterio.open(Path(root) / r["path"]) as src:
+            arr[i] = src.read()
+    arr.flush()
+    np.save(out / "labels.npy", np.array([int(r["label"]) for r in rows], dtype="int64"))
+    np.save(out / "splits.npy", np.array([r["split"] for r in rows]))
+    return len(rows)
+
+
+def stats_from_cache(cache_dir):
+    """Train-split per-band mean/std straight from the cache (fast, no file I/O)."""
+    d = Path(cache_dir)
+    arr = np.load(d / "patches.npy", mmap_mode="r")
+    idx = np.flatnonzero(np.load(d / "splits.npy") == "train")
+    s = np.zeros(len(BANDS))
+    sq = np.zeros(len(BANDS))
+    n = 0
+    for chunk in np.array_split(idx, max(1, len(idx) // 512)):
+        a = arr[chunk].astype("float64")
+        s += a.sum(axis=(0, 2, 3))
+        sq += (a ** 2).sum(axis=(0, 2, 3))
+        n += a.shape[0] * a.shape[2] * a.shape[3]
+    mean = s / n
+    return {"bands": list(BANDS), "mean": mean.tolist(),
+            "std": np.sqrt(sq / n - mean ** 2).tolist(), "n_train_files": int(len(idx))}
 
 
 def save_stats(stats, path):

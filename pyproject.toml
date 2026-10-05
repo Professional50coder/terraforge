@@ -7,6 +7,8 @@ dependencies = ["numpy", "xarray", "rasterio", "geopandas", "pystac-client"]
 
 [project.optional-dependencies]
 train = ["torch", "mlflow"]
+serve = ["torch", "fastapi", "uvicorn", "huggingface_hub", "httpx"]
+dev = ["pytest", "httpx"]
 
 [build-system]
 requires = ["setuptools>=68"]

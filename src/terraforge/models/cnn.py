@@ -32,5 +32,9 @@ class SmallCNN(nn.Module):
             nn.Linear(width * 4, n_classes),
         )
 
+    def embed(self, x: torch.Tensor) -> torch.Tensor:
+        """Latent embedding: globally pooled conv features, shape (B, width*4)."""
+        return self.features(x).mean(dim=(2, 3))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.features(x))

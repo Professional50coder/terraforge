@@ -2,6 +2,11 @@ __pycache__/
 *.pyc
 .venv/
 mlruns/
-data/raw/
+data/
+runs/
 *.tif
+*.npy
+*.pt
 .env
+*.env
+.pytest_cache/

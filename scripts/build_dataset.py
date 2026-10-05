@@ -1,4 +1,4 @@
-"""Download EuroSAT-MS (if needed), write split manifest and train-only band stats."""
+"""Download EuroSAT-MS (if needed), then write manifest, uint16 cache and train-only stats."""
 import argparse
 import urllib.request
 import zipfile
@@ -19,6 +19,7 @@ def main():
     ap.add_argument("--data-dir", default="data/raw")
     ap.add_argument("--out-dir", default="data/processed")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--keep-raw", action="store_true", help="keep extracted tifs after caching")
     a = ap.parse_args()
     data = Path(a.data_dir)
     data.mkdir(parents=True, exist_ok=True)
@@ -26,8 +27,15 @@ def main():
         root = find_root(data)
     except FileNotFoundError:
         zpath = data / "EuroSATallBands.zip"
-        print("downloading", eurosat.DOWNLOAD_URL)
-        urllib.request.urlretrieve(eurosat.DOWNLOAD_URL, zpath)
+        for url in eurosat.DOWNLOAD_URLS:
+            try:
+                print("downloading", url, flush=True)
+                urllib.request.urlretrieve(url, zpath)
+                break
+            except OSError as e:
+                print("failed:", e, flush=True)
+        else:
+            raise SystemExit("all EuroSAT mirrors failed")
         with zipfile.ZipFile(zpath) as z:
             z.extractall(data)
         zpath.unlink()
@@ -35,9 +43,12 @@ def main():
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     n = eurosat.write_manifest(root, out / "manifest.csv", seed=a.seed)
-    stats = eurosat.band_statistics(root, out / "manifest.csv")
+    print(f"{n} patches indexed", flush=True)
+    if not (out / "cache" / "splits.npy").exists():
+        eurosat.build_cache(root, out / "manifest.csv", out / "cache")
+    stats = eurosat.stats_from_cache(out / "cache")
     eurosat.save_stats(stats, out / "band_stats.json")
-    print(f"{n} patches indexed; stats from {stats['n_train_files']} train files")
+    print(f"cache ready; stats from {stats['n_train_files']} train patches", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    volumes:
+      - ./runs:/app/runs:ro
+      - ./data/processed:/app/data/processed:ro
+    # Secrets come from the host environment, never from the image or the repo:
+    #   GROQ_API_KEY=... docker compose up
+    environment:
+      - GROQ_API_KEY
+    command: >
+      python scripts/serve.py --host 0.0.0.0 --port 8000
+      --processed data/processed
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db
+    ports: ["5000:5000"]
+    volumes:
+      - mlflow-data:/mlflow
+
+volumes:
+  mlflow-data:

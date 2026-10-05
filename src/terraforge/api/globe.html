@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TerraForge Globe</title>
+<style>
+  :root { --bg:#05070d; --card:rgba(16,22,34,.82); --ink:#e8ecf3; --mute:#8d98ab;
+          --line:rgba(255,255,255,.12); --acc:#4cc9a0; }
+  * { box-sizing:border-box }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+               font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden }
+  #globe { position:fixed; inset:0 }
+  .panel { position:fixed; background:var(--card); border:1px solid var(--line);
+           border-radius:14px; padding:14px 16px; backdrop-filter:blur(10px) }
+  #brand { top:16px; left:16px; max-width:min(320px, calc(100vw - 32px)) }
+  #brand h1 { margin:0 0 2px; font-size:17px; letter-spacing:.02em }
+  #brand p { margin:0; color:var(--mute); font-size:13px }
+  #sky { bottom:16px; left:16px; display:flex; gap:14px; align-items:center }
+  #sky canvas { width:56px; height:56px; flex:none }
+  #sky b { display:block; font-size:15px } #sky span { color:var(--mute); font-size:12px }
+  #pick { top:16px; right:16px; width:min(280px, calc(100vw - 32px)); display:none }
+  #pick h2 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--mute) }
+  #pick .big { font-size:16px; margin-bottom:4px }
+  #pick small { color:var(--mute) }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap }
+  button, a.btn { background:transparent; color:var(--ink); border:1px solid var(--line);
+                  border-radius:99px; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer; text-decoration:none }
+  button:hover, a.btn:hover { border-color:var(--acc); color:var(--acc) }
+  #status { bottom:16px; right:16px; font-size:12px; color:var(--mute); max-width:min(300px, calc(100vw - 32px)) }
+  #chat { right:16px; bottom:64px; width:min(340px, calc(100vw - 32px)) }
+  #reply { min-height:38px; margin-bottom:8px }
+  #how { font-size:12px; color:var(--mute); margin-bottom:8px }
+  #trace { white-space:pre-wrap; max-height:120px; overflow:auto; margin:6px 0 0; font-size:11px }
+  #ask { display:flex; gap:6px }
+  #q { flex:1; min-width:0; background:rgba(255,255,255,.06); color:var(--ink); border:1px solid var(--line);
+       border-radius:99px; padding:7px 12px; font:inherit }
+  #mic.on { border-color:var(--acc); color:var(--acc) }
+  .tog { display:block; margin-top:8px; font-size:12px; color:var(--mute) }
+  @media (max-width:640px) { #sky { bottom:auto; top:150px } #chat { left:16px; right:16px; width:auto; bottom:56px }
+    #status { bottom:16px; left:16px; right:auto } }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<div id="brand" class="panel">
+  <h1>TerraForge</h1>
+  <p>Live Earth view. Day and night are computed from the Sun's real position.</p>
+  <div class="row">
+    <button id="spin">Pause rotation</button>
+    <a class="btn" href="/">Engineer view</a>
+  </div>
+</div>
+
+<div id="sky" class="panel">
+  <canvas id="moon" width="112" height="112" aria-label="Moon phase"></canvas>
+  <div><b id="moonName">-</b><span id="moonPct"></span><br><span id="clock"></span></div>
+</div>
+
+<div id="pick" class="panel">
+  <h2>Selected location</h2>
+  <div class="big" id="pickCoord"></div>
+  <div id="pickDay"></div>
+  <small>Land-cover analysis for this point is not available yet.</small>
+</div>
+
+<div id="chat" class="panel">
+  <div id="reply" aria-live="polite">Ask about day and night anywhere, the Sun and Moon, or Sentinel-2 scenes.</div>
+  <details id="how"><summary>How I got this</summary><pre id="trace"></pre></details>
+  <form id="ask" autocomplete="off">
+    <input id="q" placeholder="Ask something…" maxlength="500" aria-label="Question">
+    <button type="button" id="mic" title="Speak" aria-label="Speak">🎤</button>
+    <button type="submit">Ask</button>
+  </form>
+  <label class="tog"><input type="checkbox" id="speak"> Read answers aloud</label>
+</div>
+
+<div id="status" class="panel">Loading…</div>
+
+<script src="https://unpkg.com/globe.gl@2.33.1/dist/globe.gl.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const IMG = 'https://unpkg.com/three-globe@2.33.1/example/img/';
+let sky = null;
+
+function nightGeometry(s) {
+  const ring = s.terminator.map(p => [p[0], p[1]]);
+  const south = s.sun.lat >= 0;            // sun in the north: the south pole is in darkness
+  const poleLat = south ? -90 : 90;
+  ring.push([180, poleLat], [-180, poleLat], ring[0]);
+  return {type: 'Polygon', coordinates: [ring]};
+}
+
+function daylightAt(lat, lon, s) {
+  const r = Math.PI / 180, la = lat * r, lo = lon * r, sl = s.sun.lat * r, so = s.sun.lon * r;
+  return Math.sin(la) * Math.sin(sl) + Math.cos(la) * Math.cos(sl) * Math.cos(lo - so) > 0;
+}
+
+const world = Globe()($('globe'))
+  .globeImageUrl(IMG + 'earth-blue-marble.jpg')
+  .bumpImageUrl(IMG + 'earth-topology.png')
+  .backgroundImageUrl(IMG + 'night-sky.png')
+  .atmosphereColor('#6ab7ff').atmosphereAltitude(0.18)
+  .polygonCapColor(() => 'rgba(2,6,23,0.58)').polygonSideColor(() => 'rgba(0,0,0,0)')
+  .polygonStrokeColor(() => 'rgba(255,200,120,0.35)').polygonAltitude(0.004)
+  .polygonGeoJsonGeometry(d => d.geometry)
+  .pointColor(d => d.color).pointAltitude(d => d.alt).pointRadius(d => d.r)
+  .onGlobeClick(({lat, lng}) => pick(lat, lng));
+world.controls().autoRotate = true;
+world.controls().autoRotateSpeed = 0.35;
+
+function pick(lat, lon) {
+  $('pick').style.display = 'block';
+  $('pickCoord').textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+  $('pickDay').textContent = sky ? (daylightAt(lat, lon, sky) ? 'Daylight here now' : 'Night here now') : '';
+  world.pointsData([...sunPoints(), {lat, lng: lon, color: '#4cc9a0', alt: 0.02, r: 0.5}]);
+}
+
+function sunPoints() {
+  return sky ? [{lat: sky.sun.lat, lng: sky.sun.lon, color: '#ffd166', alt: 0.03, r: 1.1}] : [];
+}
+
+function drawMoon(m) {
+  const c = $('moon'), g = c.getContext('2d'), R = 50, cx = 56, cy = 56;
+  g.clearRect(0, 0, 112, 112);
+  const frac = m.age_days / 29.530588853, k = Math.cos(2 * Math.PI * frac);
+  const dark = '#1b2233', lit = '#e9e4d0', litRight = frac < 0.5;
+  g.fillStyle = dark; g.beginPath(); g.arc(cx, cy, R, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = lit; g.beginPath();
+  g.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, !litRight); g.closePath(); g.fill();
+  g.fillStyle = k > 0 ? dark : lit; g.beginPath();
+  g.ellipse(cx, cy, Math.max(0.01, Math.abs(k)) * R, R, 0, 0, 2 * Math.PI); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.25)'; g.beginPath(); g.arc(cx, cy, R, 0, 2 * Math.PI); g.stroke();
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/sky'); sky = await r.json();
+    world.polygonsData([{geometry: nightGeometry(sky)}]).pointsData(sunPoints());
+    $('moonName').textContent = sky.moon.phase;
+    $('moonPct').textContent = ` · ${(100 * sky.moon.illumination).toFixed(0)}% lit`;
+    drawMoon(sky.moon);
+    $('status').textContent = 'Sun at ' + sky.sun.lat.toFixed(1) + '°, ' + sky.sun.lon.toFixed(1) + '° · updates every minute';
+  } catch (e) { $('status').textContent = 'Sky data unavailable; retrying.'; }
+}
+setInterval(() => { $('clock').textContent = new Date().toUTCString().slice(17, 25) + ' UTC'; }, 1000);
+$('spin').onclick = e => {
+  const c = world.controls(); c.autoRotate = !c.autoRotate;
+  e.target.textContent = c.autoRotate ? 'Pause rotation' : 'Resume rotation';
+};
+// ---- conversational agent: text + voice (browser speech APIs; Chrome/Edge) ----
+const history = [];
+function say(text) {
+  if (!$('speak').checked || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+async function ask(text) {
+  text = text.trim(); if (!text) return;
+  $('reply').textContent = 'Thinking…'; $('trace').textContent = '';
+  try {
+    const r = await fetch('/agent', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify({message: text, history: history.slice(-6)})});
+    if (!r.ok) throw new Error('request failed (' + r.status + ')');
+    const j = await r.json();
+    $('reply').textContent = j.answer || 'No answer.';
+    $('trace').textContent = (j.tools || []).map(t => t.tool + ' ' + JSON.stringify(t.result || t.error)).join('\n') || 'No tools were needed.';
+    history.push({role: 'user', content: text}, {role: 'assistant', content: j.answer || ''});
+    say(j.answer);
+  } catch (e) { $('reply').textContent = 'Sorry, that did not work. Please try again.'; }
+}
+$('ask').onsubmit = e => { e.preventDefault(); ask($('q').value); $('q').value = ''; };
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) { $('mic').style.display = 'none'; }   // no voice input here: typing still works
+else {
+  const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false;
+  rec.onresult = ev => { const t = ev.results[0][0].transcript; $('q').value = t; ask(t); };
+  rec.onend = () => $('mic').classList.remove('on');
+  rec.onerror = () => $('mic').classList.remove('on');
+  $('mic').onclick = () => { $('mic').classList.add('on'); try { rec.start(); } catch (e) {} };
+}
+refresh(); setInterval(refresh, 60000);
+</script>
+</body>
+</html>

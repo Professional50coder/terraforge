@@ -1,0 +1,10 @@
+.venv
+.git
+data
+runs
+mlruns
+__pycache__
+*.pyc
+.env
+*.env
+tests
