@@ -137,6 +137,32 @@ same runs; see the questions in [docs/problem.md](docs/problem.md).
 Numbers are added here only after a run in this repository produces them. See
 [docs/algorithm_baseline.md](docs/algorithm_baseline.md).
 
+## Status and resuming
+
+| Area | State |
+|---|---|
+| Pipeline, trust layer, API, globe, agent | Built and tested (134 tests) |
+| Real training results | **Pending**: running on a Kaggle GPU kernel |
+| Candidate method (SACP) on real models | Not yet evaluated; criteria pre-registered in [docs/algorithm.md](docs/algorithm.md) |
+| UI visual polish, Docker image | Not done / unverified |
+
+**Training runs on Kaggle, not locally.** A private GPU kernel (`kaggle/entry.py`) clones this repository,
+builds the dataset, pretrains the masked autoencoder, trains the CNN, scratch ViT and MAE-initialised ViT over
+three seeds, and runs a DDP check. Operate it with:
+
+```bash
+python kaggle/launch.py push      # start the kernel from current main
+python kaggle/launch.py status    # QUEUED / RUNNING / COMPLETE / ERROR
+python kaggle/launch.py pull      # download results into runs_kaggle/
+```
+
+Credentials live in a `.env` outside the repository (`TERRAFORGE_ENV_FILE`); only the Kaggle username and key
+are imported, and never printed.
+
+**To pick the work up, start with [docs/HANDOFF.md](docs/HANDOFF.md):** the full state, the Kaggle process in
+detail, the resume checklist, known pitfalls and prioritised next steps. The plan with acceptance tests is in
+[docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Quick start
 
 ```bash

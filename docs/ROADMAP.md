@@ -3,6 +3,8 @@
 One document for everything planned. Each item has an acceptance test: it is only
 "done" when the test passes, and anything not yet built says so.
 
+Current status and how to resume: see [HANDOFF.md](HANDOFF.md).
+
 Legend: **done** (code + tests), **running** (in progress), **planned**.
 
 ## Pipeline at a glance
