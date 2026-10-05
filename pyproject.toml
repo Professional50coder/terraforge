@@ -5,6 +5,9 @@ description = "Earth Observation AI pipeline"
 requires-python = ">=3.10"
 dependencies = ["numpy", "xarray", "rasterio", "geopandas", "pystac-client"]
 
+[project.optional-dependencies]
+train = ["torch", "mlflow"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
