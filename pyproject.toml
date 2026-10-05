@@ -3,7 +3,7 @@ name = "terraforge"
 version = "0.1.0"
 description = "Earth Observation AI pipeline"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["numpy", "xarray", "rasterio", "geopandas", "pystac-client"]
 
 [build-system]
 requires = ["setuptools>=68"]
