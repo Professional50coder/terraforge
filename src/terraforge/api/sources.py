@@ -62,5 +62,6 @@ def rgb_thumbnail(x: np.ndarray) -> bytes:
 
 def mean_ndvi(x: np.ndarray) -> float:
     nir, red = x[7].astype("float64"), x[3].astype("float64")
+    # (chip arrays are (C,H,W) reflectance-scale; NaN-safe even for all-zero/no-data pixels)
     d = nir + red
     return float(np.nanmean(np.where(d > 0, (nir - red) / np.where(d > 0, d, 1), np.nan)))

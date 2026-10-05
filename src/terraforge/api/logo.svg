@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 330 84" role="img" aria-label="TerraForge">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d3a0"/>
+      <stop offset="1" stop-color="#1f8fd1"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(6 6)" fill="none" stroke="url(#g)" stroke-width="3.4" stroke-linecap="round">
+    <circle cx="36" cy="36" r="30"/>
+    <ellipse cx="36" cy="36" rx="13" ry="30"/>
+    <path d="M6 36h60"/>
+    <path d="M11 20c16 6 34 6 50 0M11 52c16-6 34-6 50 0"/>
+  </g>
+  <path d="M63 4l3.2 8.3 8.3 3.2-8.3 3.2L63 27l-3.2-8.3-8.3-3.2 8.3-3.2z" fill="#ffb84d"/>
+  <text x="92" y="52" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif"
+        font-size="38" font-weight="700" letter-spacing="-0.5" fill="#2bb38a">Terra<tspan fill="#3a9ad9">Forge</tspan></text>
+</svg>

@@ -45,8 +45,8 @@
 <div id="globe"></div>
 
 <div id="brand" class="panel">
-  <h1>TerraForge</h1>
-  <p>Live Earth view. Day and night are computed from the Sun's real position.</p>
+  <h1><img src="/logo.svg" alt="TerraForge" style="height:34px;display:block"></h1>
+  <p>Satellite intelligence you can question. Day and night shown are computed from the Sun's real position.</p>
   <div class="row">
     <button id="spin">Pause rotation</button>
     <a class="btn" href="/">Engineer view</a>
@@ -62,7 +62,10 @@
   <h2>Selected location</h2>
   <div class="big" id="pickCoord"></div>
   <div id="pickDay"></div>
-  <small>Land-cover analysis for this point is not available yet.</small>
+  <div id="result" style="margin-top:8px">Looking up the latest satellite image…</div>
+  <details id="caveats" style="display:none;margin-top:8px;font-size:12px;color:var(--mute)">
+    <summary>Things to keep in mind</summary><ul id="warnList" style="padding-left:18px;margin:6px 0 0"></ul>
+  </details>
 </div>
 
 <div id="chat" class="panel">
@@ -110,11 +113,28 @@ const world = Globe()($('globe'))
 world.controls().autoRotate = true;
 world.controls().autoRotateSpeed = 0.35;
 
-function pick(lat, lon) {
+let pickSeq = 0;
+async function pick(lat, lon) {
+  const seq = ++pickSeq;                      // ignore replies from an earlier click
   $('pick').style.display = 'block';
   $('pickCoord').textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
   $('pickDay').textContent = sky ? (daylightAt(lat, lon, sky) ? 'Daylight here now' : 'Night here now') : '';
+  $('result').textContent = 'Looking up the latest satellite image…';
+  $('caveats').style.display = 'none';
   world.pointsData([...sunPoints(), {lat, lng: lon, color: '#4cc9a0', alt: 0.02, r: 0.5}]);
+  try {
+    const r = await fetch(`/analyze?lat=${lat}&lon=${lon}`);
+    if (seq !== pickSeq) return;
+    if (r.status === 404) { $('result').textContent = 'No recent clear satellite image covers this spot.'; return; }
+    if (!r.ok) { $('result').textContent = 'Could not get imagery for this spot right now.'; return; }
+    const j = await r.json();
+    if (seq !== pickSeq) return;
+    $('result').textContent = `${j.label.replace(/([a-z])([A-Z])/g, '$1 $2')} (${(100 * j.confidence).toFixed(0)}% sure). ` + j.explanation;
+    const ul = $('warnList'); ul.replaceChildren();
+    for (const w of j.warnings) { const li = document.createElement('li'); li.textContent = w; ul.append(li); }
+    $('caveats').style.display = j.warnings.length ? 'block' : 'none';
+    if (j.untrained) $('caveats').open = true;   // never hide that the model is not trained
+  } catch (e) { if (seq === pickSeq) $('result').textContent = 'Could not get imagery for this spot right now.'; }
 }
 
 function sunPoints() {
@@ -165,6 +185,13 @@ async function ask(text) {
     const j = await r.json();
     $('reply').textContent = j.answer || 'No answer.';
     $('trace').textContent = (j.tools || []).map(t => t.tool + ' ' + JSON.stringify(t.result || t.error)).join('\n') || 'No tools were needed.';
+    // If the agent looked up a place, turn the globe to it.
+    const geo = (j.tools || []).find(t => t.tool === 'geocode' && t.result);
+    if (geo) {
+      world.controls().autoRotate = false; $('spin').textContent = 'Resume rotation';
+      world.pointOfView({lat: geo.result.lat, lng: geo.result.lon, altitude: 1.4}, 1500);
+      world.pointsData([...sunPoints(), {lat: geo.result.lat, lng: geo.result.lon, color: '#4cc9a0', alt: 0.02, r: 0.5}]);
+    }
     history.push({role: 'user', content: text}, {role: 'assistant', content: j.answer || ''});
     say(j.answer);
   } catch (e) { $('reply').textContent = 'Sorry, that did not work. Please try again.'; }

@@ -134,6 +134,65 @@ def test_groq_chat_does_not_mask_auth_errors_as_missing_models(monkeypatch):
         core.GroqChat(models=("a", "b"))([], [])
 
 
+def test_geocoder_caches_validates_and_rate_limits():
+    from terraforge.agent.geocode import Geocoder
+
+    calls = []
+
+    def fetch(q):
+        calls.append(q)
+        return [{"display_name": "Paris, France", "lat": "48.85", "lon": "2.35"}] if "paris" in q else []
+
+    g = Geocoder(fetch=fetch, min_interval=0.0)
+    assert g("Paris")["lat"] == 48.85 and g("  paris ")["lon"] == 2.35
+    assert len(calls) == 1                      # second lookup served from cache
+    import pytest
+    with pytest.raises(LookupError):
+        g("atlantis")
+    with pytest.raises(ValueError):
+        g("x")
+
+
+def test_geocoder_enforces_minimum_interval():
+    import time
+
+    from terraforge.agent.geocode import Geocoder
+
+    g = Geocoder(fetch=lambda q: [{"lat": "1", "lon": "2"}], min_interval=0.3)
+    t0 = time.monotonic()
+    g("aa"); g("bb")
+    assert time.monotonic() - t0 >= 0.28
+
+
+def test_agent_can_chain_geocode_then_analyze_point():
+    seen = {}
+
+    def analyzer(lat, lon):
+        seen["at"] = (lat, lon)
+        return {"label": "Forest", "confidence": 0.9, "ndvi": 0.7, "cloud_fraction": 0.0,
+                "warnings": ["Trained on Level-1C data"], "scene": {"date": "2024-06-01"}}
+
+    class G:
+        def __call__(self, p):
+            return {"name": p, "lat": -1.0, "lon": 33.0}
+
+    tools = build_tools(geocoder=G(), analyzer=analyzer)
+    llm = Scripted([{"tool_calls": [call("geocode", {"place": "Lake Victoria"}, "a")]},
+                    {"tool_calls": [call("analyze_point", {"lat": -1.0, "lon": 33.0}, "b")]},
+                    {"content": "Mostly forest, but note the model warning."}])
+    out = Agent(llm, tools).run("what is the land like at Lake Victoria?")
+    assert [t["tool"] for t in out["tools"]] == ["geocode", "analyze_point"]
+    assert seen["at"] == (-1.0, 33.0)
+    assert out["tools"][1]["result"]["warnings"] == ["Trained on Level-1C data"]
+
+
+def test_analyze_point_hidden_without_analyzer_and_rejects_bad_coords():
+    assert "analyze_point" not in build_tools()
+    t = build_tools(analyzer=lambda a, b: {})
+    r = Agent(None, t)._run_tool("analyze_point", {"lat": 200, "lon": 0})
+    assert "error" in r
+
+
 def test_bbox_area_tool():
     r = Agent(None)._run_tool("bbox_area", {"bbox": [6.0, 49.6, 6.01368, 49.609]})
     assert 95 < r["result"]["area_ha"] < 105

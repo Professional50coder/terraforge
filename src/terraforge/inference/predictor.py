@@ -24,13 +24,16 @@ ARCHS = {"cnn": SmallCNN, "vit": ViT}
 class InferenceEngine:
     def __init__(self, model: torch.nn.Module, mean: np.ndarray, std: np.ndarray,
                  temperature: float = 1.0, version: str = "untrained-demo",
-                 chunk: int = 32, workers: int = 2):
+                 chunk: int = 32, workers: int = 2, conformal: dict | None = None):
         self.model = model.eval()
         self.mean = torch.as_tensor(mean, dtype=torch.float32).view(1, -1, 1, 1)
         self.std = torch.as_tensor(std, dtype=torch.float32).view(1, -1, 1, 1) + 1e-6
         self.temperature = temperature
         self.version = version
         self.chunk = chunk
+        # {"method": "lac"|"aps", "q": float | list (Mondrian), "alpha": float} fitted on the
+        # VALIDATION split by scripts/analyze.py; None disables prediction sets.
+        self.conformal = conformal
         self.pool = ThreadPoolExecutor(max_workers=workers)
 
     @classmethod
@@ -70,8 +73,14 @@ class InferenceEngine:
         probs = np.concatenate([p for p, _ in parts])
         emb = np.concatenate([e for _, e in parts])
         idx = probs.argmax(1)
+        sets = None
+        if self.conformal:
+            from terraforge.training import conformal as cf
+            mask = cf.prediction_sets(probs, np.asarray(self.conformal["q"]), self.conformal["method"])
+            sets = [cf.named_sets(m, CLASSES, p) for m, p in zip(mask, probs)]
         return {
             "probs": probs, "embeddings": emb, "index": idx,
             "labels": [CLASSES[i] for i in idx], "confidence": probs.max(1),
             "latency_ms": 1000 * (time.perf_counter() - t0), "model_version": self.version,
+            "sets": sets,
         }

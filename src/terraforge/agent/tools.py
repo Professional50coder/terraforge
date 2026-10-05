@@ -76,8 +76,24 @@ def bbox_area(bbox: list) -> dict:
     return {"bbox": bbox, "area_ha": float(area_ha(g).iloc[0])}
 
 
-def build_tools(stac_client=None) -> dict[str, Tool]:
-    """stac_client is injectable so tests and offline use never touch the network."""
+def build_tools(stac_client=None, geocoder=None, analyzer=None) -> dict[str, Tool]:
+    """Collaborators are injectable so tests and offline use never touch the network.
+
+    `analyzer(lat, lon) -> dict` enables the analyze_point tool (real chip + classification).
+    """
+    from terraforge.agent.geocode import Geocoder
+    geocoder = geocoder or Geocoder()
+
+    def geocode(place: str) -> dict:
+        return geocoder(place)
+
+    def analyze_point(lat: float, lon: float) -> dict:
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError("lat must be in [-90,90] and lon in [-180,180]")
+        r = analyzer(lat, lon)
+        return {k: r[k] for k in ("label", "confidence", "ndvi", "cloud_fraction", "warnings")} | \
+               {"scene_date": r["scene"]["date"]}
+
     def search_scenes(bbox: list, start: str, end: str, max_cloud: float = 20) -> dict:
         from terraforge.data.stac_client import SceneQuery, STACClient
         client = stac_client or STACClient()
@@ -100,5 +116,15 @@ def build_tools(stac_client=None) -> dict[str, Tool]:
              {"type": "object", "properties": {"bbox": {"type": "array"}, "start": {"type": "string"},
                                                "end": {"type": "string"}, "max_cloud": num},
               "required": ["bbox", "start", "end"]}, search_scenes),
+        Tool("geocode", "Turn a place name into latitude/longitude.",
+             {"type": "object", "properties": {"place": {"type": "string"}},
+              "required": ["place"]}, geocode),
     ]
+    if analyzer is not None:
+        tools.append(Tool(
+            "analyze_point",
+            "Classify land cover at a lat/lon from the latest real Sentinel-2 image. Report the "
+            "returned warnings to the user; never claim certainty the tool did not give.",
+            {"type": "object", "properties": {"lat": num, "lon": num}, "required": ["lat", "lon"]},
+            analyze_point))
     return {t.name: t for t in tools}

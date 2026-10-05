@@ -80,11 +80,12 @@ def test_sky_endpoint_and_bad_time():
     assert c.get("/sky", params={"time": "not-a-time"}).status_code == 422
 
 
-def test_globe_page_served_and_never_claims_analysis():
+def test_globe_page_wires_analysis_and_keeps_caveats_visible_when_untrained():
     c, _ = make_client()
     r = c.get("/globe")
     assert r.status_code == 200 and "globe.gl" in r.text
-    assert "not available yet" in r.text  # honest about click-to-analyse not existing
+    assert "/analyze?lat=" in r.text and "Things to keep in mind" in r.text
+    assert "if (j.untrained) $('caveats').open = true" in r.text  # never hide an untrained model
 
 
 def test_agent_endpoint_validates_and_answers_without_llm(monkeypatch):
@@ -101,10 +102,13 @@ def test_agent_endpoint_validates_and_answers_without_llm(monkeypatch):
     assert ok.status_code == 200
 
 
-def test_dashboard_served():
+def test_dashboard_and_logo_served():
     c, _ = make_client()
     r = c.get("/")
     assert r.status_code == 200 and "TerraForge Live" in r.text
+    logo = c.get("/logo.svg")
+    assert logo.status_code == 200 and logo.headers["content-type"].startswith("image/svg")
+    assert "<svg" in logo.text
 
 
 def test_vector_index_returns_exact_match_first(tmp_path):

@@ -27,6 +27,7 @@ def main():
     ap.add_argument("--root", default=None, help="EuroSAT class-folder root for real replay")
     ap.add_argument("--explainer", default="template", choices=["template", "groq", "hf", "ollama"])
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--conformal", default=None, help="conformal.json written by analyze.py")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
     a = ap.parse_args()
@@ -35,7 +36,12 @@ def main():
     proc = Path(a.processed)
     stats = json.loads((proc / "band_stats.json").read_text()) if (proc / "band_stats.json").exists() \
         else {"mean": [1500.0] * 13, "std": [800.0] * 13}
-    engine = InferenceEngine.load(a.arch, a.weights, stats, temperature=a.temperature)
+    conformal, temperature = None, a.temperature
+    if a.conformal:
+        c = json.loads(Path(a.conformal).read_text())
+        conformal, temperature = c["conformal"], c["temperature"]
+    engine = InferenceEngine.load(a.arch, a.weights, stats, temperature=temperature,
+                                  conformal=conformal)
     source = EuroSATSource(a.root, proc / "manifest.csv") if a.root and (proc / "manifest.csv").exists() \
         else SyntheticSource()
     index = build_reference_index(engine, source, 512)

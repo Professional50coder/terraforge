@@ -30,6 +30,7 @@ from terraforge.training import drift as driftlib
 MAX_BATCH = 256
 DASHBOARD = Path(__file__).with_name("dashboard.html")
 GLOBE = Path(__file__).with_name("globe.html")
+LOGO = Path(__file__).with_name("logo.svg")
 
 
 class PatchBatch(BaseModel):
@@ -64,22 +65,30 @@ class AgentIn(BaseModel):
     history: list[dict] = Field(default_factory=list, max_length=12)
 
 
-def default_agent() -> Agent:
+def default_agent(analyzer=None) -> Agent:
     """LLM-backed when GROQ_API_KEY is present in the environment, rule-based otherwise."""
-    return Agent(GroqChat() if os.environ.get("GROQ_API_KEY") else None)
+    from terraforge.agent.tools import build_tools
+    return Agent(GroqChat() if os.environ.get("GROQ_API_KEY") else None,
+                 build_tools(analyzer=analyzer))
 
 
 def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None,
                explainer: Explainer | None = None, drift_reference=None,
-               agent: Agent | None = None) -> FastAPI:
+               agent: Agent | None = None, stac=None) -> FastAPI:
+    from terraforge.data.stac_client import STACClient
+    stac = stac or STACClient()
     app = FastAPI(title="TerraForge", version="0.1.0")
     explainer = explainer or Explainer("template")
-    agent = agent or default_agent()
     untrained = "untrained" in engine.version
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard():
         return DASHBOARD.read_text(encoding="utf-8")
+
+    @app.get("/logo.svg")
+    def logo():
+        from fastapi.responses import Response
+        return Response(LOGO.read_bytes(), media_type="image/svg+xml")
 
     @app.get("/globe", response_class=HTMLResponse)
     def globe_page():
@@ -102,6 +111,63 @@ def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None
         return {"sun": sky.sun_position(dt), "terminator": sky.terminator(dt, 120),
                 "moon": sky.moon_phase(dt)}
 
+    def analyze_sync(lat: float, lon: float) -> dict:
+        """Real chip -> classify -> explain, with caveats. Raises LookupError (no scene),
+        OSError/KeyError (upstream imagery problem). Shared by /analyze and the agent."""
+        from datetime import date, timedelta
+
+        from terraforge.data.chip_fetcher import fetch_chip
+        from terraforge.data.stac_client import SceneQuery
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError("lat must be in [-90,90] and lon in [-180,180]")
+        q = SceneQuery((lon - 0.002, lat - 0.002, lon + 0.002, lat + 0.002),
+                       str(date.today() - timedelta(days=90)), str(date.today()),
+                       max_cloud=40, limit=10)
+        items = stac.search(q)
+        if not items:
+            raise LookupError("no recent low-cloud Sentinel-2 scene covers this point")
+        item = items[0]
+        hrefs = {k: a.href for k, a in item.assets.items()}
+        baseline = item.properties.get("s2:processing_baseline")
+        chip, meta = fetch_chip(hrefs, lon, lat, float(baseline) if baseline else None)
+        out = engine.predict(chip[None])
+        ndvi = mean_ndvi(chip)
+        neigh = index.search(out["embeddings"], 5)[0] if index and len(index) else []
+        expl = explainer.explain(out["labels"][0], float(out["confidence"][0]), ndvi, neigh)
+        warnings = ["Trained on Level-1C data; this chip is Level-2A, so accuracy is lower."]
+        if meta["missing_bands"]:
+            warnings.append("Missing band(s) filled with zeros: " + ", ".join(meta["missing_bands"]))
+        if meta["cloud_fraction"] > 0.3:
+            warnings.append(f"{meta['cloud_fraction']:.0%} of this area is cloudy; treat as unreliable.")
+        if untrained:
+            warnings.append("The model is not trained yet; this prediction is not meaningful.")
+        pset = out["sets"][0] if out["sets"] else None
+        if pset:
+            a = engine.conformal["alpha"]
+            warnings.append(f"The answer set covers the true class at least {1 - a:.0%} of the time "
+                            "on data like the calibration set; that guarantee does not hold under "
+                            "haze, missing bands or the Level-2A shift.")
+        return {"prediction_set": pset, "scene": {"id": item.id, "date": str(item.datetime)[:10]},
+                "label": out["labels"][0], "confidence": float(out["confidence"][0]),
+                "ndvi": ndvi, "cloud_fraction": meta["cloud_fraction"],
+                "explanation": expl["text"], "explanation_source": expl["source"],
+                "warnings": warnings, "untrained": untrained}
+
+    agent = agent or default_agent(analyze_sync)
+
+    @app.get("/analyze")
+    async def analyze(lat: float, lon: float):
+        """Fetch a real Sentinel-2 chip at a point, classify it, explain it, with caveats."""
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise HTTPException(422, "lat must be in [-90,90] and lon in [-180,180]")
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(None, analyze_sync, lat, lon)
+        except LookupError as e:
+            raise HTTPException(404, str(e))
+        except (OSError, KeyError) as e:  # network / missing asset: upstream problem, not ours
+            raise HTTPException(502, f"could not fetch imagery: {type(e).__name__}")
+
     @app.post("/agent")
     async def agent_endpoint(body: AgentIn):
         """Conversational entry point (typed or transcribed speech). Blocking LLM/tool work
@@ -122,9 +188,12 @@ def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None
         return {
             "model_version": out["model_version"], "latency_ms": out["latency_ms"],
             "untrained": untrained,
+            "conformal_alpha": engine.conformal["alpha"] if engine.conformal else None,
             "predictions": [{"label": l, "confidence": float(c),
+                             "prediction_set": out["sets"][i] if out["sets"] else None,
                              "probs": dict(zip(CLASSES, map(float, p)))}
-                            for l, c, p in zip(out["labels"], out["confidence"], out["probs"])],
+                            for i, (l, c, p) in enumerate(zip(out["labels"], out["confidence"],
+                                                              out["probs"]))],
         }
 
     @app.post("/similar")
