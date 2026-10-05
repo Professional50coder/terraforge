@@ -121,3 +121,58 @@ def test_analyze_upstream_failure_is_502_not_500(tmp_path):
     hrefs["red"] = str(tmp_path / "does_not_exist.tif")
     c = client(tmp_path, [Item(hrefs)])
     assert c.get("/analyze", params={"lat": LAT, "lon": LON}).status_code == 502
+
+
+def test_offset_detected_from_pixels_not_trusted_from_metadata(tmp_path):
+    from terraforge.data.chip_fetcher import offset_present
+    rng = np.random.default_rng(0)
+    with_offset = [1000 + rng.gamma(2, 400, 5000)]            # floor at ~1000: offset is baked in
+    without = [rng.gamma(2, 400, 5000)]                        # dark pixels at a few hundred DN
+    assert offset_present(with_offset) and not offset_present(without)
+    assert not offset_present([]) and not offset_present([np.zeros(10)])
+
+
+def test_fetch_chip_keeps_dark_data_intact_when_the_declared_offset_is_absent(tmp_path):
+    # baseline says "offset present", but values (500 DN) prove it is not: must NOT subtract 1000
+    chip, meta = fetch_chip(make_scene(tmp_path, dn=500), LON, LAT, baseline=5.12)
+    assert meta["offset_removed"] is False and np.allclose(chip[3], 500.0)
+
+
+def test_fetch_chip_removes_a_genuine_offset_even_without_a_baseline(tmp_path):
+    chip, meta = fetch_chip(make_scene(tmp_path, dn=3000), LON, LAT, baseline=None)
+    assert meta["offset_removed"] is True and np.allclose(chip[3], 2000.0)
+
+
+def test_slow_imagery_returns_504_not_a_hung_request(tmp_path):
+    import time
+
+    class SlowSTAC:
+        def search(self, q):
+            time.sleep(1.0)
+            return [Item(make_scene(tmp_path))]
+
+    stats = {"mean": [1500.0] * 13, "std": [800.0] * 13}
+    eng = InferenceEngine.load("cnn", None, stats)
+    src = SyntheticSource()
+    c = TestClient(create_app(eng, src, build_reference_index(eng, src, 16),
+                              stac=SlowSTAC(), analyze_timeout=0.2))
+    r = c.get("/analyze", params={"lat": LAT, "lon": LON})
+    assert r.status_code == 504 and "slowly" in r.json()["detail"]
+
+
+def test_repeat_click_reuses_the_cached_chip(tmp_path, monkeypatch):
+    from terraforge.data import chip_fetcher
+    calls = {"n": 0}
+    real = chip_fetcher.fetch_chip
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(chip_fetcher, "fetch_chip", counting)
+    c = client(tmp_path, [Item(make_scene(tmp_path))])
+    for _ in range(3):
+        assert c.get("/analyze", params={"lat": LAT, "lon": LON}).status_code == 200
+    assert calls["n"] == 1                       # three clicks, one network fetch
+    c.get("/analyze", params={"lat": LAT + 0.01, "lon": LON})
+    assert calls["n"] == 2                       # a different place fetches again

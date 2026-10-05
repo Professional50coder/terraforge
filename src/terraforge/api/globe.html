@@ -126,6 +126,7 @@ async function pick(lat, lon) {
     const r = await fetch(`/analyze?lat=${lat}&lon=${lon}`);
     if (seq !== pickSeq) return;
     if (r.status === 404) { $('result').textContent = 'No recent clear satellite image covers this spot.'; return; }
+    if (r.status === 504) { $('result').textContent = 'The satellite imagery service is slow right now. Please try again in a moment.'; return; }
     if (!r.ok) { $('result').textContent = 'Could not get imagery for this spot right now.'; return; }
     const j = await r.json();
     if (seq !== pickSeq) return;

@@ -74,7 +74,7 @@ def default_agent(analyzer=None) -> Agent:
 
 def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None,
                explainer: Explainer | None = None, drift_reference=None,
-               agent: Agent | None = None, stac=None) -> FastAPI:
+               agent: Agent | None = None, stac=None, analyze_timeout: float = 90.0) -> FastAPI:
     from terraforge.data.stac_client import STACClient
     stac = stac or STACClient()
     app = FastAPI(title="TerraForge", version="0.1.0")
@@ -111,6 +111,8 @@ def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None
         return {"sun": sky.sun_position(dt), "terminator": sky.terminator(dt, 120),
                 "moon": sky.moon_phase(dt)}
 
+    chip_cache: dict = {}
+
     def analyze_sync(lat: float, lon: float) -> dict:
         """Real chip -> classify -> explain, with caveats. Raises LookupError (no scene),
         OSError/KeyError (upstream imagery problem). Shared by /analyze and the agent."""
@@ -129,7 +131,12 @@ def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None
         item = items[0]
         hrefs = {k: a.href for k, a in item.assets.items()}
         baseline = item.properties.get("s2:processing_baseline")
-        chip, meta = fetch_chip(hrefs, lon, lat, float(baseline) if baseline else None)
+        key = (item.id, round(lat, 4), round(lon, 4))  # ~10 m: repeat clicks reuse the chip
+        if key not in chip_cache:
+            if len(chip_cache) >= 64:
+                chip_cache.pop(next(iter(chip_cache)))      # oldest first
+            chip_cache[key] = fetch_chip(hrefs, lon, lat, float(baseline) if baseline else None)
+        chip, meta = chip_cache[key]
         out = engine.predict(chip[None])
         ndvi = mean_ndvi(chip)
         neigh = index.search(out["embeddings"], 5)[0] if index and len(index) else []
@@ -162,7 +169,10 @@ def create_app(engine: InferenceEngine, source, index: VectorIndex | None = None
             raise HTTPException(422, "lat must be in [-90,90] and lon in [-180,180]")
         loop = asyncio.get_running_loop()
         try:
-            return await loop.run_in_executor(None, analyze_sync, lat, lon)
+            return await asyncio.wait_for(loop.run_in_executor(None, analyze_sync, lat, lon),
+                                          timeout=analyze_timeout)
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "the imagery service is responding slowly; please try again")
         except LookupError as e:
             raise HTTPException(404, str(e))
         except (OSError, KeyError) as e:  # network / missing asset: upstream problem, not ours

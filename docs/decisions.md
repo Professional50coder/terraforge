@@ -36,6 +36,13 @@ results are added to this log only after a run in this repo produces them.
 | Secrets loaded from an external `.env` with an allowlist | Load everything | A shared `.env` holds unrelated credentials the service has no need to see. |
 | CPU-only, non-root container with health check | CUDA image | Inference on 64x64 patches needs no GPU; the CPU image is far smaller. Not yet built or verified here (no Docker on the dev machine). |
 
+## Findings from running against real Sentinel-2 data
+
+| Finding | Evidence | Decision |
+|---|---|---|
+| The +1000 reflectance offset cannot be trusted from metadata or the processing-baseline number | A real Paris L2A scene declared `offset: -0.1`, yet its median blue DN was 849 and 5th percentile ~200. With that offset these would be negative reflectance (about -0.08). Subtracting it clipped roughly half the pixels to zero. Without it, blue/green/red/NIR/SWIR means were 0.087/0.096/0.097/0.133/0.133 and NDVI 0.13, consistent with a scene that is 69% built-up and 18% water. | The offset is removed only if the darkest valid pixels sit near 1000 DN (`offset_present`); the decision is returned as `offset_removed` for every chip. |
+| Remote chip reads were slow and highly variable | 13 sequential band reads took ~75 s; after parallelising and tuning GDAL HTTP options the same request took 11 s once and 244 s another time. | Parallel band reads, GDAL timeouts and retries, an in-memory chip cache, and a hard request deadline that returns HTTP 504 with a plain-language message. Latency is variable and is not claimed to be fixed. |
+
 ## Honest limits
 
 - EuroSAT labels land cover, not vegetation stress.
