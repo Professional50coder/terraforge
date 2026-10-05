@@ -10,3 +10,4 @@ runs/
 .env
 *.env
 .pytest_cache/
+runs_kaggle/

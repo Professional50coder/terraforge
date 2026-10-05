@@ -37,7 +37,18 @@ def aps_scores(probs: np.ndarray) -> np.ndarray:
     return (ge * probs[:, None, :]).sum(-1)
 
 
-SCORERS = {"lac": lac_scores, "aps": aps_scores}
+def raps_scores(probs: np.ndarray, lam: float = 0.02, k_reg: int = 1) -> np.ndarray:
+    """Regularised APS (Angelopoulos et al. 2021), deterministic form.
+
+    APS mass plus a penalty lam * max(0, rank - k_reg) on how deep the class sits in the ranking.
+    Plain APS includes many classes on easy inputs; the rank penalty discourages that, giving much
+    smaller sets while keeping the coverage guarantee (the score is still a valid nonconformity score).
+    """
+    rank = (probs[:, None, :] > probs[:, :, None]).sum(-1) + 1  # 1 = most likely
+    return aps_scores(probs) + lam * np.maximum(0, rank - k_reg)
+
+
+SCORERS = {"lac": lac_scores, "aps": aps_scores, "raps": raps_scores}
 
 
 def true_class_scores(scores: np.ndarray, y: np.ndarray) -> np.ndarray:

@@ -50,6 +50,12 @@ answers it quantitatively:
 | What does the L1C to L2A gap cost? | Real STAC chips with offset harmonisation, B10 filled and flagged | `data/chip_fetcher.py` |
 | Can labels be avoided? | Masked-autoencoder pretraining on unlabeled 13-band patches (75% masking) | `models/mae.py` |
 
+A candidate method, **SACP** (severity-aware conformal prediction), tests whether calibrating the
+conformal quantile on a severity covariate learned from simulated physical corruptions restores
+coverage under shift better than existing approaches. It is compared against seven baselines with
+pre-registered success criteria in [docs/algorithm.md](docs/algorithm.md); on real models it is
+**not yet evaluated**, and it is not claimed to be novel.
+
 Full problem statement, protocols and what is *not* claimed: [docs/problem.md](docs/problem.md).
 Every hand-written numerical routine is cross-checked against scikit-learn, SciPy, NumPy or PyTorch
 in [tests/test_reference_math.py](tests/test_reference_math.py).

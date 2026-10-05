@@ -101,6 +101,53 @@ def main():
                 "coverage": r["coverage"], "mean_size": r["mean_size"],
                 "accuracy": float((p2.argmax(1) == y2).mean())}
 
+    # ---- Q1b: conformal calibration methods under HELD-OUT corruption families --------------
+    # Severity is a nominal 0-1 index, not physical units, and its scale differs per family;
+    # this is a known weakness of the setup and is reported, not hidden.
+    from terraforge.training import shift_conformal as sc
+
+    def make_batch(loader, corrupt=None, severity=0.0):
+        lg, y, emb = collect(model, loader, corrupt=corrupt)
+        return sc.Batch((lg / T).softmax(1).numpy(), emb, sel.knn_novelty(train_emb, emb, k=5),
+                        y, np.full(len(y), severity))
+
+    fams, levels, test_levels = list(CORRUPTIONS), (0.15, 0.3, 0.45, 0.6), (0.25, 0.5)
+    clean_cal = make_batch(dl["val"])
+    cal_by_fam = {f: sc.Batch.concat([make_batch(dl["val"], (CORRUPTIONS[f], s), s) for s in levels])
+                  for f in fams}
+    per_method: dict[str, list] = {}
+    held_out = {}
+    for f in fams:
+        aug = sc.Batch.concat([cal_by_fam[g] for g in fams if g != f])   # f is NEVER seen in calibration
+        conds = {f"{s}": make_batch(dl["test"], (CORRUPTIONS[f], s), s) for s in test_levels}
+        res = sc.compare(clean_cal, aug, conds, a.alpha)
+        # Matched-coverage efficiency and paired bootstrap CIs (SACP vs the strongest baselines).
+        for s_name, tb in conds.items():
+            eff = sc.efficiency_at_coverage(clean_cal, aug, tb, target=1 - a.alpha)
+            masks = sc.predict_sets_all(clean_cal, aug, tb, a.alpha)
+            for m, r in res[s_name].items():
+                r["size_at_target_coverage"] = eff[m]
+            for base in ("cond_novelty", "cond_entropy", "raps", "hybrid_union"):
+                res[s_name]["sacp"].setdefault("vs", {})[base] = sc.paired_bootstrap(
+                    masks["sacp"], masks[base], tb.y)
+        held_out[f] = res
+        for cond in res.values():
+            for m, r in cond.items():
+                per_method.setdefault(m, []).append(r)
+    report["shift_conformal"] = {
+        "protocol": "calibrate on clean + all-but-one corruption family; test on the held-out family",
+        "held_out": held_out,
+        "summary": {m: {"mean_coverage": float(np.mean([r["coverage"] for r in rs])),
+                        "worst_undercoverage": float(np.max([r["undercoverage"] for r in rs])),
+                        "mean_size": float(np.mean([r["mean_size"] for r in rs])),
+                        "mean_size_at_target_coverage": float(np.mean(
+                            [r["size_at_target_coverage"] for r in rs
+                             if np.isfinite(r["size_at_target_coverage"])] or [np.inf])),
+                        "unreachable_conditions": int(sum(
+                            not np.isfinite(r["size_at_target_coverage"]) for r in rs)),
+                        "mean_outside_envelope": float(np.mean([r["outside_envelope_fraction"] for r in rs]))}
+                    for m, rs in per_method.items()}}
+
     # ---- Q2: selective prediction -------------------------------------------------------------
     conf, correct = tprob.max(1), tprob.argmax(1) == ty
     novelty = sel.knn_novelty(train_emb, temb, k=5)
