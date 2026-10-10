@@ -1,5 +1,0 @@
-numpy
-xarray
-rasterio
-geopandas
-pystac-client

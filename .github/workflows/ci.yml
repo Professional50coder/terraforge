@@ -11,12 +11,15 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -e . pytest
+      # CPU torch first: the default wheel pulls ~2 GB of CUDA libraries. Without torch,
+      # scikit-learn and scipy, importorskip silently skips most of the suite.
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[serve,dev]"
       - run: pytest -q

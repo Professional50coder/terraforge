@@ -11,3 +11,4 @@ mlruns/
 .env
 *.env
 .pytest_cache/
+*.egg-info/
