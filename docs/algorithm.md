@@ -87,42 +87,51 @@ hybrids; a hybrid counts only if it also wins on the held-out-family protocol.
 ## Evidence so far: controlled simulation only
 
 A simulator with known severity (class signal weakens and embedding noise grows with severity). It
-checks the mechanism and the code, **not** satellite data.
+checks the mechanism and the code, **not** satellite data. Regenerate both tables with
+`python scripts/simulate_shift.py` (about 20 s on CPU; seeds 0-4 for validity, 0-3 for efficiency).
 
 Validity - coverage / mean set size at target 0.90 (mean of 5 seeds):
 
 | method | s=0.0 | s=0.2 | s=0.4 | s=0.6 | s=0.8 |
 |---|---|---|---|---|---|
-| scp | 0.937 / 1.01 | 0.871 / 1.01 | 0.758 / 1.01 | 0.606 / 1.01 | 0.436 / 1.00 |
-| raps | 0.992 / 1.94 | 0.980 / 2.26 | 0.955 / 2.57 | 0.902 / 2.83 | 0.806 / 2.99 |
-| cond_novelty | 0.952 / 1.07 | 0.932 / 1.34 | 0.907 / 1.78 | 0.854 / 2.25 | 0.762 / 2.60 |
-| sacp | 0.963 / 1.12 | 0.954 / 1.45 | 0.932 / 1.96 | 0.884 / 2.47 | 0.795 / 2.82 |
-| sacp_raps | 0.981 / 1.71 | 0.965 / 1.89 | 0.943 / 2.36 | 0.901 / 2.80 | 0.815 / 3.07 |
-| sacp_cqr | 0.965 / 1.13 | 0.943 / 1.41 | 0.913 / 1.98 | 0.870 / 2.72 | 0.809 / 3.39 |
-| hybrid_union | 0.988 / 1.34 | 0.975 / 1.69 | 0.950 / 2.14 | 0.900 / 2.60 | 0.808 / 2.91 |
-| weighted | 0.937 / 1.01 | 0.901 / 1.35 | 0.883 / 2.83 | 0.865 / 3.82 | 0.866 / 4.55 |
+| scp | 0.941 / 1.01 | 0.868 / 1.01 | 0.758 / 1.01 | 0.604 / 1.01 | 0.441 / 1.00 |
+| raps | 0.993 / 1.95 | 0.982 / 2.27 | 0.954 / 2.57 | 0.901 / 2.82 | 0.807 / 2.99 |
+| pooled_aug | 0.984 / 1.25 | 0.951 / 1.37 | 0.884 / 1.52 | 0.773 / 1.64 | 0.623 / 1.71 |
+| cond_novelty | 0.954 / 1.07 | 0.930 / 1.34 | 0.903 / 1.77 | 0.852 / 2.24 | 0.762 / 2.58 |
+| cond_entropy | 0.985 / 1.31 | 0.964 / 1.56 | 0.925 / 1.88 | 0.854 / 2.21 | 0.744 / 2.47 |
+| sacp | 0.966 / 1.11 | 0.952 / 1.45 | 0.930 / 1.96 | 0.882 / 2.45 | 0.796 / 2.81 |
+| sacp_raps | 0.983 / 1.72 | 0.968 / 1.90 | 0.943 / 2.36 | 0.898 / 2.79 | 0.813 / 3.06 |
+| sacp_cqr | 0.970 / 1.12 | 0.944 / 1.41 | 0.911 / 1.97 | 0.870 / 2.72 | 0.807 / 3.33 |
+| hybrid_union | 0.989 / 1.34 | 0.975 / 1.68 | 0.950 / 2.14 | 0.898 / 2.58 | 0.809 / 2.90 |
+| weighted | 0.941 / 1.01 | 0.899 / 1.35 | 0.881 / 2.81 | 0.872 / 3.89 | 0.871 / 4.61 |
 
 Matched-coverage efficiency - set size needed to reach 90% coverage (mean of 4 seeds; `inf` = never):
 
 | method | s=0.0 | s=0.3 | s=0.6 |
 |---|---|---|---|
-| scp | 1.00 | 1.32 | inf |
-| scp_aps | 1.36 | 1.70 | 2.79 |
-| raps | 1.28 | 1.57 | 2.79 |
-| cond_novelty | 1.00 | 1.41 | 2.76 |
-| cond_entropy | 1.03 | 1.35 | 2.64 |
-| sacp | 1.00 | 1.33 | 2.65 |
-| sacp_raps | 1.13 | 1.49 | 2.83 |
-| sacp_cqr | 1.01 | 1.42 | 3.13 |
-| hybrid_union | 1.03 | 1.31 | 2.59 |
-| weighted | 1.00 | 1.99 | 4.12 |
+| scp | 1.00 | 1.31 | inf |
+| scp_aps | 1.36 | 1.71 | 2.81 |
+| raps | 1.29 | 1.58 | 2.81 |
+| pooled_aug | 1.00 | 1.33 | 2.64 |
+| cond_novelty | 1.00 | 1.43 | 2.78 |
+| cond_entropy | 1.03 | 1.34 | 2.65 |
+| sacp | 1.00 | 1.34 | 2.68 |
+| sacp_raps | 1.13 | 1.45 | 2.83 |
+| sacp_cqr | 1.01 | 1.40 | 3.12 |
+| hybrid_union | 1.03 | 1.31 | 2.61 |
+| weighted | 1.00 | 2.03 | 4.14 |
 
 **Honest reading.**
 - The problem is real: marginal conformal coverage falls from 0.94 to 0.44 as severity rises, and at
   severity 0.6 it cannot reach 90% at any size.
 - What fixes it is *having a covariate that indexes the shift at all*. Once one is used, the methods
   that do (`cond_entropy`, `sacp`, `cond_novelty`, `hybrid_union`) sit within a few percent of each other
-  at matched coverage (2.59 to 2.76 at s=0.6), which is within noise for 4 seeds.
+  at matched coverage (2.61 to 2.78 at s=0.6), which is within noise for 4 seeds.
+- **A plain `pooled_aug` baseline (one quantile over the pooled clean + corrupted calibration set, no
+  covariate at all) needs 2.64 at s=0.6, as small as SACP (2.68).** It is weaker on validity at nominal
+  alpha (0.773 coverage at s=0.6 vs 0.882) but equal on the matched-coverage ranking. The simulation
+  therefore does not separate SACP from the simplest augmentation baseline on efficiency, which is why
+  `pooled_aug` is one of the pre-registered spoilers below.
 - **SACP's advantage over simple entropy- or novelty-conditioning is not demonstrated here.** In this
   simulation novelty and entropy already track severity almost perfectly.
 - `sacp_cqr`, `sacp_raps` and weighted conformal are *worse* at matched coverage. Weighted conformal
@@ -146,6 +155,10 @@ SACP is **supported** only if, against the best of `cond_novelty` and `cond_entr
 It is **not supported** if any condition fails, or if `raps`, `weighted` or `pooled_aug` match its coverage
 at equal size. Given the simulation, a null result against `cond_entropy` is the expected outcome and
 will be reported as such.
+
+The verdict is computed, not argued: `python scripts/sacp_verdict.py runs/analysis_<model>.json` applies
+these rules to the `analyze.py` output (`training/preregistered.py`, unit-tested). Details the
+pre-registration left open are resolved in the strict direction and printed with the verdict.
 
 ## Known limitations
 
