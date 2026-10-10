@@ -8,7 +8,7 @@ without the original context. Nothing here contains credentials.
 | Item | State |
 |---|---|
 | Repository | `Professional50coder/terraforge`, public, branch `main` |
-| Last verified full test run | 134 tests passing (venv, Python 3.11) |
+| Last verified full test run | 138 tests passing (venv, Python 3.11; re-verified on CPU torch) |
 | Real training results | **pending**, running on Kaggle (section 3) |
 | Results table in README | still says "pending GPU run" |
 | UI redesign | not started (ideas in section 6) |
